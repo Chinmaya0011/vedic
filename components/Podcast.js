@@ -1,23 +1,21 @@
 "use client";
 import React, { useState, useEffect } from "react";
-import AgoraRTC from "agora-rtc-sdk-ng"; // Import the AgoraRTC SDK
+import AgoraRTC from "agora-rtc-sdk-ng";
 
 const Podcast = () => {
-  const [uid, setUid] = useState(""); // State for UID
-  const [role, setRole] = useState("viewer"); // State for role (viewer or host)
-  const [token, setToken] = useState(""); // State for the generated token
-  const [isJoined, setIsJoined] = useState(false); // State for whether the user has joined the channel
-  const [localStream, setLocalStream] = useState(null); // State for local stream
-  const [remoteStreams, setRemoteStreams] = useState([]); // State for remote streams
-  const [client, setClient] = useState(null); // State for Agora client
+  const [uid, setUid] = useState("");
+  const [role, setRole] = useState("viewer");
+  const [token, setToken] = useState("");
+  const [isJoined, setIsJoined] = useState(false);
+  const [localStream, setLocalStream] = useState(null);
+  const [remoteStreams, setRemoteStreams] = useState([]);
+  const [client, setClient] = useState(null);
 
-  // Hardcoded values for channel name and title
   const channelName = "SANATANVISION";
   const title = "MYLIVE";
 
-  // Fetch token function
   const fetchToken = async () => {
-    const eventTime = new Date().toISOString(); // Set current date and time for eventTime
+    const eventTime = new Date().toISOString();
     try {
       const response = await fetch("http://localhost:3001/api/generate-token", {
         method: "POST",
@@ -27,7 +25,7 @@ const Podcast = () => {
           uid,
           role,
           title,
-          username: "john_doe", // Example username
+          username: "john_doe",
           eventTime,
         }),
       });
@@ -45,14 +43,13 @@ const Podcast = () => {
     }
   };
 
-  // Join channel function
   const joinChannel = async () => {
     if (!token || !uid) {
       alert("Please enter a UID and fetch a token first.");
       return;
     }
 
-    const agoraClient = AgoraRTC.createClient({ mode: "live", codec: "vp8", role: "host" });
+    const agoraClient = AgoraRTC.createClient({ mode: "live", codec: "vp8", role: role });
     setClient(agoraClient);
 
     try {
@@ -63,23 +60,49 @@ const Podcast = () => {
         const videoTrack = await AgoraRTC.createCameraVideoTrack();
         const audioTrack = await AgoraRTC.createMicrophoneAudioTrack();
         await agoraClient.publish([videoTrack, audioTrack]);
+        console.log("Host stream published successfully");
         setLocalStream(videoTrack);
         videoTrack.play("local-video");
+        
+        // If there are any remote streams at the time the host joins, subscribe to them as well
+        agoraClient.on("stream-added", (event) => {
+          const remoteStream = event.stream;
+          console.log("Stream added:", remoteStream);
+          agoraClient.subscribe(remoteStream);
+        });
+
+        agoraClient.on("stream-subscribed", (event) => {
+          const remoteStream = event.stream;
+          console.log("Stream subscribed:", remoteStream);
+          setRemoteStreams((prev) => [...prev, remoteStream]);
+          remoteStream.play(`remote-video-${remoteStream.getId()}`);
+        });
       }
 
-      // Subscribe to remote streams (audience can subscribe to host's stream)
-      agoraClient.on("stream-added", (event) => {
-        const remoteStream = event.stream;
-        if (role === "viewer") {
-          // Audience (viewers) should subscribe to the host's stream
-          agoraClient.subscribe(remoteStream);
-        }
-      });
+      if (role === "viewer") {
+        // If the viewer joins after the host has published their stream
+        agoraClient.on("stream-added", (event) => {
+          const remoteStream = event.stream;
+          console.log("Stream added:", remoteStream);
+          if (remoteStream.getId() === localStream?.getId()) {
+            // If it's the host's stream, subscribe to it
+            console.log("Viewer subscribing to host's stream");
+            agoraClient.subscribe(remoteStream);
+          }
+        });
+      }
 
       agoraClient.on("stream-subscribed", (event) => {
         const remoteStream = event.stream;
+        console.log("Stream subscribed:", remoteStream);
         setRemoteStreams((prev) => [...prev, remoteStream]);
         remoteStream.play(`remote-video-${remoteStream.getId()}`);
+      });
+
+      agoraClient.on("stream-removed", (event) => {
+        const removedStream = event.stream;
+        setRemoteStreams((prev) => prev.filter((stream) => stream.getId() !== removedStream.getId()));
+        console.log("Stream removed:", removedStream);
       });
     } catch (error) {
       console.error("Error joining channel:", error);
@@ -87,7 +110,7 @@ const Podcast = () => {
     }
   };
 
-  // Leave channel function
+
   const leaveChannel = async () => {
     if (client) {
       if (localStream) {
@@ -108,7 +131,6 @@ const Podcast = () => {
     }
   };
 
-  // Cleanup on component unmount
   useEffect(() => {
     return () => {
       if (client) {
