@@ -1,9 +1,9 @@
 import React from 'react'
-import Stream from '@/components/Stream'
+import Podcast from '@/components/Podcast'
 const page = () => {
   return (
     <div>
-      <Stream/>
+      <Podcast/>
     </div>
   )
 }
